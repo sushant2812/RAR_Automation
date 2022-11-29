@@ -64,7 +64,7 @@ class MainWindow(QDialog):
     def __init__(self):
         super(MainWindow, self).__init__()
         self.setMinimumSize(QSize(401, 392))
-        loadUi("test.ui", self)
+        loadUi("main.ui", self)
         self.setWindowTitle("RAR Automation")
         self.browse.clicked.connect(self.browseFolderforDownloads)
         self.browse_2.clicked.connect(self.browseFolderforExtraction)

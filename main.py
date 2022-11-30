@@ -1,5 +1,7 @@
 import sys
 import os
+import zipfile
+
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QSize, QThread,pyqtSignal
 from PyQt5.QtWidgets import QDialog, QApplication, QFileDialog, QSystemTrayIcon, QStyle, QAction, QMenu, QGridLayout, \
@@ -7,6 +9,7 @@ from PyQt5.QtWidgets import QDialog, QApplication, QFileDialog, QSystemTrayIcon,
 from PyQt5.uic import loadUi
 import rarfile
 import time
+import zipfile
 
 folders=[]
 
@@ -40,22 +43,40 @@ class extractrar(QThread):
         file_to_extract = file[0]
         file_to_extract = os.path.join(download_folder, file_to_extract)
         file_to_extract = os.path.normpath(file_to_extract)
-        a = rarfile.RarFile(file_to_extract)
-        path = file[0].replace('.rar', '')
-        path = os.path.join(extract_folder, path)
-        path = os.path.normpath(path)
-        if not (os.path.exists(path)):
-            os.mkdir(path)
-        totalnumberoffiles = len(a.namelist())
-        self.setTotalProgress.emit(100)
-        incrementvalue=100//(totalnumberoffiles)
-        startingpoint=0
-        for i in a.namelist():
-            self.setLabel_4.emit("Extracting {}".format(i))
-            a.extract(i, path=path)
-            startingpoint+=incrementvalue
-            self.setCurrentProgress.emit(startingpoint)
-        self.succeeded.emit()
+        if '.rar' in file[0]:
+            a = rarfile.RarFile(file_to_extract)
+            path = file[0].replace('.rar', '')
+            path = os.path.join(extract_folder, path)
+            path = os.path.normpath(path)
+            if not (os.path.exists(path)):
+                os.mkdir(path)
+            totalnumberoffiles = len(a.namelist())
+            self.setTotalProgress.emit(100)
+            incrementvalue=100//(totalnumberoffiles)
+            startingpoint=0
+            for i in a.namelist():
+                self.setLabel_4.emit("Extracting {}".format(i))
+                a.extract(i, path=path)
+                startingpoint+=incrementvalue
+                self.setCurrentProgress.emit(startingpoint)
+            self.succeeded.emit()
+        elif '.zip' in file[0]:
+            a = zipfile.ZipFile(file_to_extract)
+            path = file[0].replace('.zip', '')
+            path = os.path.join(extract_folder, path)
+            path = os.path.normpath(path)
+            if not (os.path.exists(path)):
+                os.mkdir(path)
+            totalnumberoffiles = len(a.namelist())
+            self.setTotalProgress.emit(100)
+            incrementvalue=100//(totalnumberoffiles)
+            startingpoint=0
+            for i in a.namelist():
+                self.setLabel_4.emit("Extracting {}".format(i))
+                a.extract(i, path=path)
+                startingpoint+=incrementvalue
+                self.setCurrentProgress.emit(startingpoint)
+            self.succeeded.emit()
 
 class MainWindow(QDialog):
     check_box = None
@@ -64,7 +85,7 @@ class MainWindow(QDialog):
     def __init__(self):
         super(MainWindow, self).__init__()
         self.setMinimumSize(QSize(401, 392))
-        loadUi("main.ui", self)
+        loadUi("test.ui", self)
         self.setWindowTitle("RAR Automation")
         self.browse.clicked.connect(self.browseFolderforDownloads)
         self.browse_2.clicked.connect(self.browseFolderforExtraction)

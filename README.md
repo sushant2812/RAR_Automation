@@ -4,12 +4,7 @@ Prerequistes:
 >>RARFILE
 >>PyQt5
 
-Steps to run:
->>Install Python
->>Install the following pip dependencies:
->RarFile
->PyQt5
-
+Steps
 >>Pull the git branch
 >>Run the py file
 >>Set the directories

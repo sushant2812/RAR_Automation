@@ -5,8 +5,8 @@ Prerequistes:
 >>PyQt5
 
 Steps
->>Pull the git branch
->>Run the py file
->>Set the directories
->>Click start
->>Start the download
+1.Pull the git branch
+2.Run the py file
+3.Set the directories
+4.Click start
+5.Start the download

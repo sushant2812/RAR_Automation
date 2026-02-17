@@ -6,6 +6,7 @@ from PyQt5.QtCore import QSize, QSettings, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QMessageBox,
@@ -28,7 +29,7 @@ SETTINGS_ORG = "RARAutomation"
 SETTINGS_APP = "RAR Automation"
 
 
-def validate_folders(download_folder: str, extract_folder: str) -> tuple[bool, str]:
+def validate_folders(download_folder: str, extract_folder: str):
     """Return (True, '') if both folders are valid; else (False, error_message)."""
     if not download_folder or not extract_folder:
         return False, "Please set both Download and Extraction folders."
@@ -52,10 +53,16 @@ class ArchiveExtractWorker(QThread):
     succeeded = pyqtSignal()
     failed = pyqtSignal(str)
 
-    def __init__(self, download_folder: str, extract_folder: str):
+    def __init__(
+        self,
+        download_folder: str,
+        extract_folder: str,
+        delete_after_extract: bool = False,
+    ):
         super().__init__()
         self.download_folder = download_folder
         self.extract_folder = extract_folder
+        self.delete_after_extract = delete_after_extract
         self._cancelled = False
 
     def cancel(self):
@@ -124,6 +131,14 @@ class ArchiveExtractWorker(QThread):
             self.failed.emit(f"Extraction failed: {e}")
             return
 
+        if self.delete_after_extract:
+            try:
+                os.remove(archive_path)
+                self.status_updated.emit("Archive deleted")
+            except OSError as e:
+                self.failed.emit(f"Extraction completed but could not delete archive: {e}")
+                return
+
         self.succeeded.emit()
 
 
@@ -141,6 +156,7 @@ class MainWindow(QDialog):
         self._worker = None
         self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
         self._load_saved_paths()
+        self._setup_delete_after_checkbox()
         self._setup_cancel_button()
         self._setup_tray()
 
@@ -156,13 +172,36 @@ class MainWindow(QDialog):
         self._settings.setValue("download_folder", self.FileName.text().strip())
         self._settings.setValue("extract_folder", self.FileName2.text().strip())
 
+    def _setup_delete_after_checkbox(self):
+        self.delete_after_checkbox = QCheckBox("Delete archive after extraction", self)
+        self.delete_after_checkbox.setChecked(
+            self._settings.value("delete_after_extract", False, type=bool)
+        )
+        self.delete_after_checkbox.stateChanged.connect(self._save_delete_after_setting)
+        try:
+            parent = self.start.parent()
+            if parent is not None and parent.layout() is not None:
+                parent.layout().addWidget(self.delete_after_checkbox)
+        except Exception:
+            self.delete_after_checkbox.setParent(self)
+            self.delete_after_checkbox.setGeometry(20, self.start.y() - 30, 250, 24)
+
+    def _save_delete_after_setting(self):
+        self._settings.setValue(
+            "delete_after_extract", self.delete_after_checkbox.isChecked()
+        )
+
     def _setup_cancel_button(self):
         self.cancel_btn = QPushButton("Cancel", self)
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self._cancel_extraction)
-        parent = self.start.parent()
-        if parent and parent.layout() is not None:
-            parent.layout().addWidget(self.cancel_btn)
+        try:
+            parent = self.start.parent()
+            if parent is not None and parent.layout() is not None:
+                parent.layout().addWidget(self.cancel_btn)
+        except Exception:
+            self.cancel_btn.setParent(self)
+            self.cancel_btn.setGeometry(self.start.x() + self.start.width() + 10, self.start.y(), 80, self.start.height())
 
     def _setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self)
@@ -203,21 +242,37 @@ class MainWindow(QDialog):
     def _start_extraction(self):
         download_folder = self.FileName.text().strip()
         extract_folder = self.FileName2.text().strip()
-        if not download_folder or not extract_folder:
+        ok, err = validate_folders(download_folder, extract_folder)
+        if not ok:
+            QMessageBox.warning(self, "Invalid folders", err)
             return
 
+        self._save_paths()
         self.start.setEnabled(False)
-        self._worker = ArchiveExtractWorker(download_folder, extract_folder)
+        self.cancel_btn.setEnabled(True)
+        delete_after = self.delete_after_checkbox.isChecked()
+        self._worker = ArchiveExtractWorker(
+            download_folder, extract_folder, delete_after_extract=delete_after
+        )
         self._worker.progress_max.connect(self.progressBar.setMaximum)
         self._worker.progress_value.connect(self.progressBar.setValue)
         self._worker.status_updated.connect(self.label_4.setText)
         self._worker.succeeded.connect(self._on_extraction_succeeded)
+        self._worker.failed.connect(self._on_extraction_failed)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
 
+    def _cancel_extraction(self):
+        if self._worker is not None:
+            self._worker.cancel()
+
     def _on_worker_finished(self):
         self.start.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
         self._worker = None
+
+    def _on_extraction_failed(self, message: str):
+        QMessageBox.critical(self, "RAR Automation", message)
 
     def _on_extraction_succeeded(self):
         self.progressBar.setValue(self.progressBar.maximum())

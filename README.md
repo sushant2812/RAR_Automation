@@ -6,6 +6,10 @@ A desktop application that watches a download folder and automatically extracts 
 
 - **Watch & extract** — Monitors a folder for new `.rar` or `.zip` files and extracts them when the download completes
 - **Progress feedback** — Progress bar and status messages during extraction
+- **Cancel** — Cancel waiting or extraction at any time
+- **Delete after extraction** — Optional checkbox to delete the archive from the download folder after a successful extraction
+- **Error handling** — Validates folders before starting; shows clear errors if extraction fails (e.g. corrupt archive, permissions)
+- **Remember folders** — Last-used download and extraction paths are saved and restored on next launch
 - **System tray** — Minimize to tray; optional notification when extraction completes
 - **Supported formats** — RAR and ZIP
 
@@ -32,15 +36,9 @@ A desktop application that watches a download folder and automatically extracts 
 
 3. Install dependencies:
    ```bash
-   pip install rarfile PyQt5
+   pip install -r requirements.txt
    ```
-
-   Or use a requirements file (create one with):
-   ```bash
-   pip install rarfile PyQt5
-   pip freeze | grep -E "rarfile|PyQt5" > requirements.txt
-   ```
-   Then: `pip install -r requirements.txt`
+   Or manually: `pip install rarfile PyQt5`
 
 4. Ensure the UI file `test.ui` is in the same directory as `main.py`. (If your file is named `main.ui`, either rename it to `test.ui` or change the `loadUi("test.ui", self)` line in `main.py` to match.)
 
@@ -73,9 +71,10 @@ A desktop application that watches a download folder and automatically extracts 
 
 ```
 RAR_Automation/
-├── main.py      # PyQt5 UI and worker thread (orchestration only)
-├── extractor.py # Archive detection and extraction (no UI; reusable/testable)
-├── test.ui      # PyQt5 UI layout (must be present)
+├── main.py           # PyQt5 UI and worker thread (orchestration only)
+├── extractor.py      # Archive detection and extraction (no UI; reusable/testable)
+├── requirements.txt  # pip dependencies (rarfile, PyQt5)
+├── test.ui           # PyQt5 UI layout (must be present)
 └── README.md
 ```
 

@@ -73,7 +73,8 @@ A desktop application that watches a download folder and automatically extracts 
 
 ```
 RAR_Automation/
-├── main.py      # Application entry point and UI logic
+├── main.py      # PyQt5 UI and worker thread (orchestration only)
+├── extractor.py # Archive detection and extraction (no UI; reusable/testable)
 ├── test.ui      # PyQt5 UI layout (must be present)
 └── README.md
 ```

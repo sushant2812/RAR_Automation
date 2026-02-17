@@ -1,117 +1,112 @@
-import sys
 import os
-import zipfile
-
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QSize, QThread,pyqtSignal
-from PyQt5.QtWidgets import QDialog, QApplication, QFileDialog, QSystemTrayIcon, QStyle, QAction, QMenu, QGridLayout, \
-    QCheckBox, QSpacerItem, QSizePolicy
-from PyQt5.uic import loadUi
-import rarfile
+import sys
 import time
-import zipfile
 
-folders=[]
+from PyQt5.QtCore import QSize, QThread, pyqtSignal
+from PyQt5.QtWidgets import (
+    QAction,
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QMenu,
+    QSystemTrayIcon,
+    QStyle,
+)
+from PyQt5.uic import loadUi
 
-class extractrar(QThread):
+from extractor import (
+    extract_archive,
+    get_new_archive_path,
+    wait_for_download_complete,
+    wait_for_new_file,
+)
 
-    setTotalProgress = pyqtSignal(int)
-    setCurrentProgress = pyqtSignal(int)
+
+class ArchiveExtractWorker(QThread):
+    """Worker that watches a download folder and extracts the first new RAR/ZIP when ready."""
+
+    progress_max = pyqtSignal(int)
+    progress_value = pyqtSignal(int)
+    status_updated = pyqtSignal(str)
     succeeded = pyqtSignal()
-    setLabel_4 = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, download_folder: str, extract_folder: str):
         super().__init__()
+        self.download_folder = download_folder
+        self.extract_folder = extract_folder
 
     def run(self):
-        download_folder=folders[0]
-        extract_folder=folders[1]
-        initial_path = set(os.listdir(download_folder))
-        path_to_check = set(os.listdir(download_folder))
-        while initial_path == path_to_check:
-            self.setLabel_4.emit("Download hasnt been started")
-            path_to_check = set(os.listdir(download_folder))
-        self.setLabel_4.emit("Download Found")
-        while 'cr' in path_to_check:
-            self.setLabel_4.emit("Download in-progress")
-            path_to_check = set(os.listdir(download_folder))
-        self.setLabel_4.emit("Download Completed")
+        initial_files = set(os.listdir(self.download_folder))
+
+        self.status_updated.emit("Download hasn't been started")
+        wait_for_new_file(self.download_folder)
+
+        self.status_updated.emit("Download Found")
+        current_files = wait_for_download_complete(self.download_folder)
+        self.status_updated.emit("Download Completed")
+
         time.sleep(10)
-        path_to_check = set(os.listdir(download_folder))
-        file = path_to_check - initial_path
-        file = list(file)
-        file_to_extract = file[0]
-        file_to_extract = os.path.join(download_folder, file_to_extract)
-        file_to_extract = os.path.normpath(file_to_extract)
-        if '.rar' in file[0]:
-            a = rarfile.RarFile(file_to_extract)
-            path = file[0].replace('.rar', '')
-            path = os.path.join(extract_folder, path)
-            path = os.path.normpath(path)
-            if not (os.path.exists(path)):
-                os.mkdir(path)
-            totalnumberoffiles = len(a.namelist())
-            self.setTotalProgress.emit(100)
-            incrementvalue=100//(totalnumberoffiles)
-            startingpoint=0
-            for i in a.namelist():
-                self.setLabel_4.emit("Extracting {}".format(i))
-                a.extract(i, path=path)
-                startingpoint+=incrementvalue
-                self.setCurrentProgress.emit(startingpoint)
-            self.succeeded.emit()
-        elif '.zip' in file[0]:
-            a = zipfile.ZipFile(file_to_extract)
-            path = file[0].replace('.zip', '')
-            path = os.path.join(extract_folder, path)
-            path = os.path.normpath(path)
-            if not (os.path.exists(path)):
-                os.mkdir(path)
-            totalnumberoffiles = len(a.namelist())
-            self.setTotalProgress.emit(100)
-            incrementvalue=100//(totalnumberoffiles)
-            startingpoint=0
-            for i in a.namelist():
-                self.setLabel_4.emit("Extracting {}".format(i))
-                a.extract(i, path=path)
-                startingpoint+=incrementvalue
-                self.setCurrentProgress.emit(startingpoint)
-            self.succeeded.emit()
+        current_files = set(os.listdir(self.download_folder))
+        archive_path = get_new_archive_path(
+            self.download_folder, initial_files, current_files
+        )
+
+        if not archive_path:
+            self.status_updated.emit("No new RAR or ZIP found")
+            return
+
+        def on_status(msg: str):
+            self.status_updated.emit(msg)
+
+        def on_progress(value: int, total: int):
+            self.progress_max.emit(total)
+            self.progress_value.emit(value)
+
+        extract_archive(
+            archive_path,
+            self.extract_folder,
+            on_status=on_status,
+            on_progress=on_progress,
+        )
+        self.succeeded.emit()
+
 
 class MainWindow(QDialog):
-    check_box = None
-    tray_icon = None
-
     def __init__(self):
         super(MainWindow, self).__init__()
         self.setMinimumSize(QSize(401, 392))
         loadUi("test.ui", self)
         self.setWindowTitle("RAR Automation")
-        self.browse.clicked.connect(self.browseFolderforDownloads)
-        self.browse_2.clicked.connect(self.browseFolderforExtraction)
-        self.start.clicked.connect(self.initExtract)
+
+        self.browse.clicked.connect(self._browse_download_folder)
+        self.browse_2.clicked.connect(self._browse_extract_folder)
+        self.start.clicked.connect(self._start_extraction)
+
+        self._worker = None
+        self._setup_tray()
+
+    def _setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+        tray_menu = QMenu()
         show_action = QAction("Show", self)
         quit_action = QAction("Exit", self)
         show_action.triggered.connect(self.show)
         quit_action.triggered.connect(QApplication.instance().quit)
-        tray_menu = QMenu()
         tray_menu.addAction(show_action)
         tray_menu.addAction(quit_action)
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
 
-    def browseFolderforDownloads(self):
-        fname = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select Folder')  ##Change the default directory
-        self.FileName.setText(fname)
+    def _browse_download_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Select Download Folder")
+        if path:
+            self.FileName.setText(path)
 
-
-
-    def browseFolderforExtraction(self):
-        fname = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select Folder')  ##Change the default directory
-        self.FileName2.setText(fname)
-
+    def _browse_extract_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Select Extraction Folder")
+        if path:
+            self.FileName2.setText(path)
 
     def closeEvent(self, event):
         if self.checkBox.isChecked():
@@ -121,37 +116,44 @@ class MainWindow(QDialog):
                 "RAR Automation",
                 "Application was minimized to Tray",
                 QSystemTrayIcon.Information,
-                2000
+                2000,
             )
 
-    def initExtract(self):
-        folders.append(self.FileName.text())
-        folders.append(self.FileName2.text())
+    def _start_extraction(self):
+        download_folder = self.FileName.text().strip()
+        extract_folder = self.FileName2.text().strip()
+        if not download_folder or not extract_folder:
+            return
+
         self.start.setEnabled(False)
-        self.extractrar = extractrar()
-        self.extractrar.setTotalProgress.connect(self.progressBar.setMaximum)
-        self.extractrar.setCurrentProgress.connect(self.progressBar.setValue)
-        self.extractrar.setLabel_4.connect(self.label_4.setText)
-        self.extractrar.succeeded.connect(self.extractSucceeded)
-        self.extractrar.finished.connect(self.extractfinished)
-        self.extractrar.start()
+        self._worker = ArchiveExtractWorker(download_folder, extract_folder)
+        self._worker.progress_max.connect(self.progressBar.setMaximum)
+        self._worker.progress_value.connect(self.progressBar.setValue)
+        self._worker.status_updated.connect(self.label_4.setText)
+        self._worker.succeeded.connect(self._on_extraction_succeeded)
+        self._worker.finished.connect(self._on_worker_finished)
+        self._worker.start()
 
-    def extractfinished(self):
+    def _on_worker_finished(self):
         self.start.setEnabled(True)
-        del self.extractrar
+        self._worker = None
 
-    def extractSucceeded(self):
+    def _on_extraction_succeeded(self):
         self.progressBar.setValue(self.progressBar.maximum())
         self.tray_icon.showMessage(
             "RAR Automation",
             "Extraction is completed",
             QSystemTrayIcon.Information,
-            2000
+            2000,
         )
 
 
+def main():
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
 
-app = QApplication(sys.argv)
-mainwindow = MainWindow()
-mainwindow.show()
-sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()

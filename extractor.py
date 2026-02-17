@@ -11,10 +11,20 @@ import zipfile
 SUPPORTED_EXTENSIONS = (".rar", ".zip")
 
 
-def wait_for_new_file(download_folder: str, poll_interval: float = 0.5) -> None:
+class CancelledError(Exception):
+    """Raised when an operation is cancelled by the user."""
+
+
+def wait_for_new_file(
+    download_folder: str,
+    poll_interval: float = 0.5,
+    check_cancelled: Optional[Callable[[], bool]] = None,
+) -> None:
     """Block until at least one new file appears in download_folder."""
     initial = set(os.listdir(download_folder))
     while True:
+        if check_cancelled and check_cancelled():
+            raise CancelledError()
         current = set(os.listdir(download_folder))
         if current != initial:
             return
@@ -24,6 +34,7 @@ def wait_for_new_file(download_folder: str, poll_interval: float = 0.5) -> None:
 def wait_for_download_complete(
     download_folder: str,
     poll_interval: float = 0.5,
+    check_cancelled: Optional[Callable[[], bool]] = None,
 ) -> set:
     """
     Block until no filename in the folder contains 'cr' (e.g. .crdownload temp files).
@@ -31,6 +42,8 @@ def wait_for_download_complete(
     """
     current = set(os.listdir(download_folder))
     while any("cr" in name for name in current):
+        if check_cancelled and check_cancelled():
+            raise CancelledError()
         time.sleep(poll_interval)
         current = set(os.listdir(download_folder))
     return current
@@ -66,11 +79,13 @@ def extract_archive(
     extract_folder: str,
     on_status: Optional[Callable[[str], None]] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    check_cancelled: Optional[Callable[[], bool]] = None,
 ) -> None:
     """
     Extract a RAR or ZIP to extract_folder. Callbacks:
     - on_status(message) for current file being extracted
     - on_progress(current, total) for progress (total can be 100 for percentage).
+    Raises CancelledError if check_cancelled() returns True during extraction.
     """
     archive = open_archive(archive_path)
     base_name = os.path.splitext(os.path.basename(archive_path))[0]
@@ -84,12 +99,15 @@ def extract_archive(
     if on_progress:
         on_progress(0, 100)
 
-    for i, name in enumerate(names):
-        if on_status:
-            on_status(f"Extracting {name}")
-        archive.extract(name, path=dest_dir)
-        if on_progress and total > 0:
-            value = int(100 * (i + 1) / total)
-            on_progress(value, 100)
-
-    archive.close()
+    try:
+        for i, name in enumerate(names):
+            if check_cancelled and check_cancelled():
+                raise CancelledError()
+            if on_status:
+                on_status(f"Extracting {name}")
+            archive.extract(name, path=dest_dir)
+            if on_progress and total > 0:
+                value = int(100 * (i + 1) / total)
+                on_progress(value, 100)
+    finally:
+        archive.close()
